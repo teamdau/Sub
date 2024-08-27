@@ -35,6 +35,7 @@ ALLOWED_HOSTS = [
     "youtube-to-text.com",
     "www.youtube-to-text.com",
     "youtube-to-text-production.up.railway.app",
+    "127.0.0.1",
 ]
 CSRF_TRUSTED_ORIGINS = [
     "https://youtube-to-text.com",

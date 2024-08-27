@@ -5,20 +5,11 @@ from youtube_transcript_api.formatters import TextFormatter
 from deepmultilingualpunctuation import PunctuationModel
 import kss
 import re
-from django.http import HttpResponseRedirect
-from django.urls import reverse
 import uuid
 import json
-
-
-def time_str_to_seconds(time_str):
-    parts = list(map(int, time_str.split(":")))
-    if len(parts) == 3:
-        hours, minutes, seconds = map(int, parts)
-    else:
-        hours, minutes, seconds = 0, int(parts[0]), int(parts[1])
-    total_seconds = hours * 3600 + minutes * 60 + seconds
-    return total_seconds
+from django.http import HttpResponseRedirect
+from django.urls import reverse
+from django.core.exceptions import ObjectDoesNotExist
 
 
 def capitalize_sentences(text):
@@ -26,6 +17,17 @@ def capitalize_sentences(text):
     result = re.sub(sentence_pattern, lambda x: x.group(0).upper(), text)
     return result
 
+def clean_text(text):
+    # Loại bỏ các chuỗi như [Música]
+    cleaned_text = re.sub(r'\[.*?\]', '', text)
+    
+    # Loại bỏ các dấu thời gian như (05:45)
+    cleaned_text = re.sub(r'\(\d{2}:\d{2}\)', '', cleaned_text)
+    
+    # Xóa khoảng trắng thừa
+    cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
+    
+    return cleaned_text
 
 def text_to_paragraphs(text, max_sentences_per_paragraph=10, max_paragraph_length=300):
     sentence_delimiters = [".", "!", "?"]
@@ -45,15 +47,15 @@ def text_to_paragraphs(text, max_sentences_per_paragraph=10, max_paragraph_lengt
         sentences.append(current_sentence)
 
     for sentence in sentences:
-        sentence = sentence.strip()  # Remove leading/trailing whitespace and newlines
+        sentence = sentence.strip()  # Xóa khoảng trắng và xuống dòng
         if sentence:
             if current_paragraph:
                 if (paragraph_length + len(sentence) + 1 <= max_paragraph_length) and (
                     len(current_paragraph.split(".")) < max_sentences_per_paragraph
                 ):
-                    current_paragraph += " "  # Add space between sentences
+                    current_paragraph += " "  # Thêm khoảng cách giữa các câu
                     current_paragraph += sentence
-                    paragraph_length += len(sentence) + 1  # +1 for the space
+                    paragraph_length += len(sentence) + 1  # +1 cho khoảng cách
                 else:
                     paragraphs.append(current_paragraph)
                     current_paragraph = sentence
@@ -74,13 +76,32 @@ def text_to_sentences(text):
     return sentences
 
 
+def process_transcript_by_language(language, cleaned_transcript):
+    pm = PunctuationModel()
+    if language == "en":
+        cleaned_transcript = pm.restore_punctuation(cleaned_transcript)
+        cleaned_transcript = re.sub(r"([?!~])\.", r"\1", cleaned_transcript)
+        cleaned_transcript = capitalize_sentences(cleaned_transcript)
+    elif language in ["ko", "ja"]:
+        cleaned_transcript = ". ".join(kss.split_sentences(cleaned_transcript))
+        cleaned_transcript = re.sub(r"([?!~])\.", r"\1", cleaned_transcript)
+    elif language in ["es", "fr", "de", "pt-BR", "pt-PT", "ru"]:
+        cleaned_transcript = pm.restore_punctuation(cleaned_transcript)
+        cleaned_transcript = re.sub(r"([?!~])\.", r"\1", cleaned_transcript)
+        cleaned_transcript = capitalize_sentences(cleaned_transcript)
+    elif language == "zh":
+        cleaned_transcript = pm.restore_punctuation(cleaned_transcript)
+    
+    return cleaned_transcript
+
+
 def query_view(request):
     if request.method == "POST":
         form = QueryForm(request.POST)
         if form.is_valid():
             instance = form.save(commit=False)
             instance.uid = uuid.uuid4()
-            instance.transcript = form.cleaned_data.get("transcript")
+            instance.transcript = form.cleaned_data.get("input_text")  # Lấy dữ liệu văn bản từ form
             instance.save()
 
             return redirect("transcribe", uid=instance.uid)
@@ -92,54 +113,39 @@ def query_view(request):
 def transcribe(request, uid):
     try:
         data = InputData.objects.get(uid=uid)
-        formatter = TextFormatter()
+    except InputData.DoesNotExist:
+        return HttpResponseRedirect(reverse("query_view"))
+    except Exception as e:
+        print(f"Error occurred: {e}")
+        return HttpResponseRedirect(reverse("query_view"))
 
-        # get data from form
-        url = data.youtube_url
+    try:
+        # Lấy dữ liệu từ model
+        text = data.transcript
         language = data.language
-        start_time = data.start_time
-        end_time = data.end_time
-        transcript_json = data.transcript
-        transcript = json.loads(transcript_json)
 
-        # delete data once consumed
-        data.delete()
+        # Làm sạch văn bản bằng cách loại bỏ [Música] và (05:45)
+        cleaned_text = clean_text(text)
 
-        # get time data
-        transcript_last = transcript[-1]
-        max_time = transcript_last["start"] + transcript_last["duration"]
-        start_time_seconds = time_str_to_seconds(start_time) if start_time != "" else 0
-        end_time_seconds = time_str_to_seconds(end_time) if end_time != "" else max_time
+        # Xử lý văn bản dựa trên ngôn ngữ
+        processed_text = process_transcript_by_language(language, cleaned_text)
 
-        # clean transcript
-        transcript = [
-            phrase
-            for phrase in transcript
-            if phrase["start"] >= start_time_seconds
-            and phrase["start"] <= end_time_seconds
-        ]
-        fs = formatter.format_transcript(transcript)
-        nl = fs.replace("\n", " ")
-        fs = re.sub(r"\[(.*?)\]", "", nl)
-        fs = re.sub(r"\(.*?\)", "", fs)
+        # Chuyển transcript thành đoạn văn và câu
+        paragraphs = text_to_paragraphs(processed_text)
+        sentences = text_to_sentences(processed_text)
 
-        if language == "en":
-            pm = PunctuationModel()
-            fs = pm.restore_punctuation(fs)
-            fs = re.sub(r"([?!~])\.", r"\1", fs)
-            fs = capitalize_sentences(fs)
-        elif language == "ko":
-            fs = ". ".join(kss.split_sentences(fs))
-            fs = re.sub(r"([?!~])\.", r"\1", fs)
-
-        ps = text_to_paragraphs(fs)
-        ss = text_to_sentences(fs)
-
+        # Render kết quả ra trang HTML
         return render(
             request,
             "transcribe/result.html",
-            {"raw": nl, "transcript": fs, "paragraphs": ps, "sentences": ss},
+            {
+                "transcript": processed_text,
+                "paragraphs": paragraphs,
+                "sentences": sentences,
+            },
         )
 
-    except Exception:
+    except Exception as e:
+        print(f"Error occurred during transcription: {e}")
         return HttpResponseRedirect(reverse("query_view"))
+

@@ -29,8 +29,20 @@ class Migration(migrations.Migration):
                 (
                     "language",
                     models.CharField(
-                        choices=[("en", "English"), ("ko", "한국어")],
-                        default="English",
+                        choices=[
+                            ("en", "English"),
+                            ("ko", "한국어"),  # Korean
+                            ("vi", "Tiếng Việt"),  # Vietnamese
+                            ("es", "Español"),  # Spanish
+                            ("fr", "Français"),  # French
+                            ("de", "Deutsch"),  # German
+                            ("ja", "日本語"),  # Japanese
+                            ("zh", "中文"),  # Chinese
+                            ("ru", "Русский"),  # Russian
+                            ("pt-BR", "Português (Brasil)"),  # Portuguese (Brazil)
+                            ("pt-PT", "Português (Portugal)")  # Portuguese (Portugal)
+                        ],
+                        default="en",
                         max_length=20,
                     ),
                 ),

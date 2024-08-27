@@ -1,6 +1,6 @@
 {% extends "base_generic.html" %}
 {% block title%}
-  <title>YouTubeToText</title>
+  <title>TextToTranscript</title>
 {% endblock %}
 {% block content %}
   <section class="hero mt-4">
@@ -8,27 +8,27 @@
       <div class="columns is-align-items-center is-justify-content-center">
         <div class="column is-5">
           <p class="title is-size-4">
-            Effortlessly Convert YouTube Videos into Text Transcripts
+            Convert Text into Transcripts
           </p>
           <p class="is-size-6">
-            YouTubeToText is a user-friendly FREE online tool for extracting transcripts from YouTube videos. No login is required. Simply enter the video URL, language, and/or time range. After submitting the form, you can copy the transcripts, which are formatted for proper grammar and punctuation.</p>
+            TextToTranscript is a user-friendly FREE online tool for converting text into formatted transcripts with proper grammar and punctuation. No login is required. Simply enter your text and specify the language if needed.
+          </p>
         </div>
         <div class="column is-1 is-0-mobile"></div>
         <div class="column is-6 m-2 box input-form">
           <form class="form" method="post">
             {% csrf_token %}
             <input type="hidden" name="transcript" value="{{ transcript_json }}">
+            
             <div class="field">
-              <label class="label" for="{{form.youtube_url.id_for_label}}">Enter URL</label>
+              <label class="label" for="{{form.input_text.id_for_label}}">Enter Text</label>
               <div class="control">
-                <input type="text" id="{{form.youtube_url.id_for_label}}" name="{{form.youtube_url.html_name}}" value="{{form.youtube_url.value|default_if_none:''}}" class="input" placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ">
+                <textarea id="{{form.input_text.id_for_label}}" name="{{form.input_text.html_name}}" class="textarea" placeholder="Paste or type your text here">{{form.input_text.value|default_if_none:''}}</textarea>
               </div>
 
-              {% if form.youtube_url.errors %}
-                {% for error in form.youtube_url.errors %}
-                  <p class="help is-danger">
-                    {{ error|safe }}
-                  </p>
+              {% if form.input_text.errors %}
+                {% for error in form.input_text.errors %}
+                  <p class="help is-danger">{{ error|safe }}</p>
                 {% endfor %}
               {% endif %}
 
@@ -40,6 +40,7 @@
                 </p>
               {% endif %}
             </div>
+            
             <div class="field">
               <label class="label">Language</label>
               <div class="control">
@@ -48,46 +49,17 @@
                 </div>
               </div>
             </div>
-            <div class="field">
-              <div class="control" id="timerange">
-                <label class="label">Time Range</label>
-                <div class="field has-addons mb-0">
-                  <p class="control">{{ form.start_time }}</p>
-                  <p class="control">
-                    <a class="button is-static">-</a>
-                  </p>
-                  <p class="control">{{ form.end_time }}</p>
-                </div>
-                <p class="help is-danger">
-                  {% if form.start_time.errors and form.end_time.errors %}
-                    {% for error in form.start_time.errors %}
-                      {{ error|safe }}
-                    {% endfor %}
-                  {% elif form.start_time.errors %}
-                    {% for error in form.start_time.errors %}
-                      {{ error|safe }}
-                    {% endfor %}
-                  {% elif form.end_time.errors %}
-                    {% for error in form.end_time.errors %}
-                      {{ error|safe }}
-                    {% endfor %}
-                  {% endif %}
-                </p>
-
-                <p class="is-size-7 has-text-grey ">* Default is the full length of video.</p>
-              </div>
-            </div>
+            
             <div class="field mb-0">
               <div class="control">
                 <button id="submit-button" class="button is-primary" type="submit">Transcribe!</button>
               </div>
             </div>
+            
             <p class="is-size-7 has-text-grey disclaimer">May take up to 30 seconds.</p>
           </form>
         </div>
       </div>
-
     </div>
-
   </section>
 {% endblock %}

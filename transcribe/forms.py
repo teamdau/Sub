@@ -1,35 +1,34 @@
 from django import forms
 from .models import InputData
-from django.forms import URLInput, TextInput
-from youtube_transcript_api import (
-    YouTubeTranscriptApi,
-    NoTranscriptFound,
-    TranscriptsDisabled,
-)
-from urllib.parse import urlparse, parse_qs
 from django.core.validators import RegexValidator
-import json
+import logging
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 
 def time_str_to_seconds(time_str):
-    parts = list(map(int, time_str.split(":")))
-    if len(parts) == 3:
-        hours, minutes, seconds = map(int, parts)
-    else:
-        hours, minutes, seconds = 0, int(parts[0]), int(parts[1])
-    total_seconds = hours * 3600 + minutes * 60 + seconds
-    return total_seconds
+    try:
+        parts = list(map(int, time_str.split(":")))
+        if len(parts) == 3:
+            hours, minutes, seconds = parts
+        else:
+            hours, minutes, seconds = 0, int(parts[0]), int(parts[1])
+        return hours * 3600 + minutes * 60 + seconds
+    except (ValueError, IndexError):
+        return 0  # Trả về 0 nếu có lỗi với thời gian
 
 
 class QueryForm(forms.ModelForm):
     class Meta:
         model = InputData
-        fields = ("youtube_url", "language", "start_time", "end_time")
+        fields = ("input_text", "language", "start_time", "end_time")  # Thay youtube_url bằng input_text
         widgets = {
-            "youtube_url": URLInput(
+            "input_text": forms.Textarea(
                 attrs={
-                    "class": "input",
-                    "placeholder": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    "class": "textarea",
+                    "placeholder": "Paste or type your text here...",
+                    "rows": 10,
                 }
             ),
         }
@@ -70,94 +69,35 @@ class QueryForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
-        url = cleaned_data.get("youtube_url")
+        input_text = cleaned_data.get("input_text")
         language = cleaned_data.get("language")
         start_time = cleaned_data.get("start_time")
         end_time = cleaned_data.get("end_time")
 
-        if url is not None and "youtu.be" not in url and "youtube.com" not in url:
-            self.add_error(
-                "youtube_url",
-                forms.ValidationError(
-                    "Enter a valid YouTube URL.",
-                    code="invalid_link",
-                ),
-            )
+        # Kiểm tra nếu văn bản nhập vào rỗng
+        if not input_text:
+            self.add_error("input_text", "This field cannot be empty.")
             return cleaned_data
 
+        # Xử lý logic với văn bản thay vì với YouTube URL
         try:
-            parsed_url = urlparse(url)
-            video_id = ""
-            if "youtu.be" in url:
-                path_segments = parsed_url.path.split("/")
-                video_id = path_segments[-1]
-            else:
-                parsed_dict = parse_qs(parsed_url.query)
-                video_id = parsed_dict["v"][0]
+            # Thực hiện các bước xử lý văn bản, ví dụ xử lý dấu câu, tách câu, tùy thuộc vào logic của bạn
+            # Bạn có thể thêm logic xử lý ở đây, ví dụ: chuẩn hóa, kiểm tra văn bản theo ngôn ngữ
 
-            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[language])
+            # Kiểm tra thời gian nếu có nhập
+            if start_time or end_time:
+                # Nếu có transcript (hoặc text), xử lý logic thời gian
+                max_time = len(input_text.split()) * 0.5  # Giả định 0.5s mỗi từ, tùy thuộc vào logic của bạn
+                start_time_seconds = time_str_to_seconds(start_time) if start_time else 0
+                end_time_seconds = time_str_to_seconds(end_time) if end_time else max_time
 
-            transcript_json = json.dumps(transcript)
-            cleaned_data["transcript"] = transcript_json
-        except KeyError:
-            self.add_error(
-                "youtube_url",
-                forms.ValidationError(
-                    "Enter a valid YouTube URL.",
-                    code="invalid_link",
-                ),
-            )
-        except NoTranscriptFound:
-            lang = ""
-            if language == "ko":
-                lang = "한국어"
-            elif language == "en_US":
-                lang = "English"
-            self.add_error(
-                "youtube_url",
-                forms.ValidationError(
-                    f"No {lang} transcript is available for this YouTube video.",
-                    code="invalid_link",
-                ),
-            )
-        except TranscriptsDisabled:
-            self.add_error(
-                "youtube_url",
-                forms.ValidationError(
-                    "Transcripts are disabled for this YouTube video.",
-                    code="invalid_link",
-                ),
-            )
-        except Exception:
-            pass
+                if start_time_seconds > max_time or end_time_seconds > max_time:
+                    self.add_error("start_time", "Enter a valid time range.")
+                elif start_time_seconds > end_time_seconds:
+                    self.add_error("start_time", "Start time cannot be greater than end time.")
 
-        try:
-            transcript_last = transcript[-1]
-            max_time = transcript_last["start"] + transcript_last["duration"]
-            start_time_seconds = (
-                time_str_to_seconds(start_time) if start_time != "" else 0
-            )
-            end_time_seconds = (
-                time_str_to_seconds(end_time) if end_time != "" else max_time
-            )
-            if start_time_seconds > max_time or end_time_seconds > max_time:
-                self.add_error(
-                    "start_time",
-                    forms.ValidationError(
-                        "Enter a valid time range.",
-                        code="invalid_time",
-                    ),
-                )
-            elif start_time_seconds > end_time_seconds:
-                self.add_error(
-                    "start_time",
-                    forms.ValidationError(
-                        "Start time cannot be greater than end time.",
-                        code="invalid_time",
-                    ),
-                )
-
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Unexpected error occurred: {e}")
+            self.add_error("input_text", "An error occurred while processing the text.")
 
         return cleaned_data
